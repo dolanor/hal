@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/BurntSushi/xgb/screensaver"
@@ -10,96 +11,54 @@ import (
 	"github.com/BurntSushi/xgbutil"
 	"github.com/BurntSushi/xgbutil/ewmh"
 	"github.com/aquilax/go-wakatime"
-	"github.com/coreos/go-systemd/v22/login1"
 )
 
+func printUsage() {
+	fmt.Println(`hal: your friendly robot friend that records everything you do on task
+	usage: hal PROJECT_NAME
+
+PROJECT_NAME: the project name you want to be recorded in WakaTime.
+
+needs a WakaTime set up on the machine.`)
+}
+
 func main() {
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(1)
+	}
+	projectName := os.Args[1]
+
 	apiKey, err := loadWakatimeAPIKey()
 	if err != nil {
 		log.Println("api_key not found in wakatime config file. Have you set it?")
 		panic(err)
 	}
-	fmt.Println("desk names:", names)
 
-	err = ewmh.DesktopNamesSet(X, deskNames)
-	if err != nil {
-		panic(err)
-	}
-
-	names, err = ewmh.DesktopNamesGet(X)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("desk names:", names)
-
-	wktr := wakatime.NewBasicTransport(wkKey)
+	wktr := wakatime.NewBasicTransport(apiKey)
 	wk := wakatime.New(wktr)
 
-	l, err := login1.New()
+	hal, err := NewHal(projectName, time.Second*30, wk)
 	if err != nil {
 		panic(err)
 	}
-	defer l.Close()
-	users, err := l.ListUsers()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("users:", users)
-
-	sessions, err := l.ListSessions()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("sessions:", sessions)
-
-	sess, err := l.GetActiveSession()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("sess:", sess)
-
-	user, err := l.GetSessionUser(sess)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("user:", user)
 
 	for range time.Tick(time.Second * 5) {
-		info, err := screensaver.QueryInfo(X.Conn(), xproto.Drawable(rootWin)).Reply()
-		if err != nil {
-			log.Fatal(err)
-		}
-		inactiveFor := time.Duration(info.MsSinceUserInput) * time.Millisecond
-		fmt.Println("Inactive for", inactiveFor)
 
-		if inactiveFor > time.Second*30 {
-			println("ignoring this activity")
+		if !hal.isUserActive() {
+			// let's check another tick
 			continue
 		}
 
-		sess, err := l.GetActiveSession()
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("sess:", sess)
-		continue
-		currDesk, err := ewmh.CurrentDesktopGet(X)
-		if err != nil {
-			panic(err)
-		}
-		if int(currDesk) > len(names) {
-			log.Println("name not set for desk:", currDesk)
-			return
+		working, err := hal.isHumanDoingTheAssignedProject()
+		if !working {
+			continue
 		}
 
-		projectName := names[currDesk]
-		fmt.Println("curr desk name:", projectName)
-		fmt.Println("curr desk:", currDesk)
-		hbResp, err := wk.PostHeartbeat("current", wakatime.HeartbeatItem{
-			Entity:   "gnome workspace",
-			Project:  projectName,
-			Time:     float32(time.Now().UTC().Unix()),
-			Language: "Go",
+		hbResp, err := hal.wakatime.PostHeartbeat("current", wakatime.HeartbeatItem{
+			Entity:  "Gnome workspace",
+			Project: hal.projectName,
+			Time:    float32(time.Now().UTC().Unix()),
 		})
 		if err != nil {
 			log.Println(err)
@@ -107,4 +66,69 @@ func main() {
 		}
 		fmt.Println("hbResp:", hbResp)
 	}
+}
+
+func (h *Hal) isHumanDoingTheAssignedProject() (bool, error) {
+	currDesk, err := ewmh.CurrentDesktopGet(h.xutil)
+	if err != nil {
+		return false, err
+	}
+
+	return currDesk == h.projectDesktopID, nil
+}
+
+type Hal struct {
+	projectName            string
+	projectDesktopID       uint
+	humanActivityThreshold time.Duration
+
+	xutil   *xgbutil.XUtil
+	rootWin xproto.Window
+
+	wakatime *wakatime.WakaTime
+}
+
+func NewHal(projectName string, humanActivityThreshold time.Duration, wk *wakatime.WakaTime) (*Hal, error) {
+	X, err := xgbutil.NewConn()
+	if err != nil {
+		return nil, err
+	}
+
+	err = screensaver.Init(X.Conn())
+	if err != nil {
+		return nil, err
+	}
+
+	setup := xproto.Setup(X.Conn())
+	rootWin := setup.DefaultScreen(X.Conn()).Root
+	drw := xproto.Drawable(rootWin)
+	screensaver.SelectInput(X.Conn(), drw, screensaver.EventNotifyMask)
+
+	currDesk, err := ewmh.CurrentDesktopGet(X)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Hal{
+		projectName:            projectName,
+		projectDesktopID:       currDesk,
+		humanActivityThreshold: humanActivityThreshold,
+
+		xutil:   X,
+		rootWin: rootWin,
+
+		wakatime: wk,
+	}, nil
+}
+
+func (h *Hal) isUserActive() bool {
+	info, err := screensaver.QueryInfo(h.xutil.Conn(), xproto.Drawable(h.rootWin)).Reply()
+	if err != nil {
+		log.Fatal(err)
+		return true
+	}
+	inactiveFor := time.Duration(info.MsSinceUserInput) * time.Millisecond
+	//fmt.Println("Inactive for", inactiveFor)
+
+	return inactiveFor <= h.humanActivityThreshold
 }
