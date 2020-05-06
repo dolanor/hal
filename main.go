@@ -14,23 +14,9 @@ import (
 )
 
 func main() {
-	X, err := xgbutil.NewConn()
+	apiKey, err := loadWakatimeAPIKey()
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = screensaver.Init(X.Conn())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	setup := xproto.Setup(X.Conn())
-	rootWin := setup.DefaultScreen(X.Conn()).Root
-	drw := xproto.Drawable(rootWin)
-	screensaver.SelectInput(X.Conn(), drw, screensaver.EventNotifyMask)
-
-	names, err := ewmh.DesktopNamesGet(X)
-	if err != nil {
+		log.Println("api_key not found in wakatime config file. Have you set it?")
 		panic(err)
 	}
 	fmt.Println("desk names:", names)

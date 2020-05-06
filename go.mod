@@ -7,7 +7,7 @@ require (
 	github.com/BurntSushi/xgbutil v0.0.0-20190907113008-ad855c713046
 	github.com/aquilax/go-wakatime v0.1.1
 	github.com/coreos/go-systemd/v22 v22.0.1-0.20200316104309-cb8b64719ae3
-	github.com/godbus/dbus v4.1.0+incompatible // indirect
+	gopkg.in/ini.v1 v1.55.0
 )
 
 replace (
