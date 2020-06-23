@@ -77,12 +77,21 @@ func (h *Hal) isHumanDoingTheAssignedProject() (bool, error) {
 		return false, err
 	}
 
-	return currDesk == h.projectDesktopID, nil
+	currViewport, err := ewmh.DesktopViewportGet(h.xutil)
+	if err != nil {
+		return false, err
+	}
+	vp := currViewport[0]
+	println("desk id", currDesk, "viewport: (", vp.X, ", ", vp.Y, ")")
+
+	return currDesk == h.projectDesktopID &&
+		vp == h.projectDesktopViewport, nil
 }
 
 type Hal struct {
 	projectName            string
 	projectDesktopID       uint
+	projectDesktopViewport ewmh.DesktopViewport
 	humanActivityThreshold time.Duration
 
 	xutil   *xgbutil.XUtil
@@ -112,9 +121,15 @@ func NewHal(projectName string, humanActivityThreshold time.Duration, wk *wakati
 		return nil, err
 	}
 
+	currViewport, err := ewmh.DesktopViewportGet(X)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Hal{
 		projectName:            projectName,
 		projectDesktopID:       currDesk,
+		projectDesktopViewport: currViewport[0],
 		humanActivityThreshold: humanActivityThreshold,
 
 		xutil:   X,
