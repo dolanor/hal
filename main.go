@@ -51,6 +51,9 @@ func main() {
 		}
 
 		working, err := hal.isHumanDoingTheAssignedProject()
+		if err != nil {
+			log.Println(err)
+		}
 		if !working {
 			continue
 		}
