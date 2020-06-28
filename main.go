@@ -58,6 +58,7 @@ func main() {
 			continue
 		}
 
+		//TODO Handle timeout
 		hbResp, err := hal.wakatime.PostHeartbeat("current", wakatime.HeartbeatItem{
 			Entity:  "Gnome workspace",
 			Project: hal.projectName,
@@ -65,7 +66,8 @@ func main() {
 		})
 		if err != nil {
 			log.Println(err)
-			return
+			// until we deal with timeout, we will just continue here
+			continue
 		}
 		fmt.Println("hbResp:", hbResp)
 	}
